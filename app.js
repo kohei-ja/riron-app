@@ -389,6 +389,7 @@ async function submitGrade(grade) {
       S.queue.splice(Math.min(S.queue.length, grade === 1 ? 2 : 4), 0, c.id);
     }
     nextCard();
+    Sync.soon();
   } catch (e) {
     alert(`保存に失敗しました: ${e.message}`);
   } finally {
@@ -1587,10 +1588,20 @@ function downloadJson(obj, name) {
 async function exportRecords(withCards) {
   const out = LOCAL ? await api("/api/export", { withCards }) : await api(withCards ? "/api/export?cards=1" : "/api/export");
   if (LOCAL) await Local.markExported();
+  // スマホ用データには自動同期の接続設定も入れる(スマホで入力しなくて済むように)
+  if (withCards && Sync.configured()) out.sync = { repo: Sync.config().repo, token: Sync.config().token };
   return out;
 }
 
-function syncPanel() {
+// 取り込んだファイルに接続設定があれば反映して、すぐ同期する
+function applySyncFromFile(json) {
+  if (!json.sync) return false;
+  try { Sync.configure(json.sync); } catch { return false; }
+  Sync.run().then(afterSync).catch(() => {});
+  return true;
+}
+
+function manualSyncPanel() {
   const msg = h("div", { class: "small", style: "margin-top:8px" });
   const say = (text, bad) => { msg.textContent = text; msg.style.color = bad ? "var(--danger, #c0392b)" : ""; };
   const exportBtn = (label, withCards, name) => h("button", { class: "btn", onclick: async () => {
@@ -1616,7 +1627,9 @@ function syncPanel() {
       let json;
       try { json = JSON.parse(await f.text()); } catch { throw new Error("JSON として読めませんでした"); }
       const r = await api("/api/import", json);
+      const connected = applySyncFromFile(json);
       await load();
+      if (connected) { say("取り込みました。自動同期の設定も入りました。"); return; }
       say(r.added || r.flags || r.loaded
         ? `取り込みました: 評価 ${r.added} 件(${r.cards} 枚のカード)${r.loaded ? `、カード ${r.loaded} 枚` : ""}${r.flags ? `、フラグ ${r.flags} 件` : ""}。`
         : "新しい記録はありませんでした。");
@@ -1629,8 +1642,7 @@ function syncPanel() {
     const { at, logNow } = Local.lastExport();
     note = h("p", { class: "small muted" }, at ? `最後に書き出した日時: ${at.replace("T", " ")}` : "まだ書き出していません。", logNow ? ` (この端末の評価 ${logNow} 件)` : "");
   }
-  return h("div", { class: "panel" },
-    h("h2", {}, "学習記録の同期・バックアップ"),
+  return h("div", { style: "margin-top:8px" },
     h("p", { class: "small" },
       LOCAL ? "このスマホの記録はこの端末の中だけに保存されています。PC と記録を合わせたり、バックアップを取ったりするときは、ファイルで書き出して送ります。"
         : "スマホ単体で使うときや、PC とスマホの両方で学習したときは、ファイルで記録を受け渡します。"),
@@ -1644,8 +1656,65 @@ function syncPanel() {
     h("p", { class: "small muted" }, "注意: 「元に戻す」で取り消した評価でも、取り消す前に書き出したファイルを取り込むと元に戻ります。"));
 }
 
+function syncPanel() {
+  return h("div", {}, autoSyncPanel(),
+    h("details", { class: "panel" }, h("summary", { style: "cursor:pointer" }, "手動での受け渡し・バックアップ(予備)"), manualSyncPanel()));
+}
+
+function autoSyncPanel() {
+  const box = h("div", { class: "panel" });
+  const msg = h("div", { class: "small", style: "margin-top:8px" });
+  const say = (text, bad) => { msg.textContent = text; msg.style.color = bad ? "var(--danger, #c0392b)" : ""; };
+  const draw = () => {
+    if (Sync.configured()) {
+      const at = Sync.lastOk();
+      fill(box, h("h2", {}, "自動同期"),
+        h("p", { class: "small" }, "接続済み: ", h("code", {}, Sync.config().repo),
+          at ? `(最後に同期: ${Srs.iso(new Date(at)).replace("T", " ").slice(0, 16)})` : ""),
+        h("p", { class: "small muted" }, "このアプリを開いたときと、学習したあとに、PC とスマホの記録が自動で合わさります。圏外のときは、つながったときに同期します。"),
+        h("div", { class: "row", style: "gap:8px" },
+          h("button", { class: "btn primary", onclick: async () => {
+            say("同期しています…");
+            try {
+              const r = await Sync.run();
+              await load();
+              say(r ? (r.merged ? `他の端末の記録を取り込みました(${r.merged} 件)。` : "同期しました。変更はありません。") : "オフラインです。");
+            } catch (e) { say(`同期できませんでした: ${e.message}`, true); }
+          } }, "今すぐ同期"),
+          h("button", { class: "btn", onclick: () => { if (confirm("自動同期をやめますか?(この端末の記録は残ります)")) { Sync.disconnect(); draw(); } } }, "接続を解除")),
+        msg);
+      return;
+    }
+    const repo = h("input", { type: "text", placeholder: "ユーザー名/リポジトリ名", style: "width:100%", autocapitalize: "off" });
+    const token = h("input", { type: "password", placeholder: "github_pat_…", style: "width:100%", autocomplete: "off" });
+    fill(box, h("h2", {}, "自動同期"),
+      h("p", { class: "small" }, "学習記録(カード ID・評価・日時だけで、教材の文章は含みません)を、GitHub の非公開リポジトリに預けて、PC とスマホで自動的に合わせます。"),
+      h("ol", { class: "small" },
+        h("li", {}, "非公開リポジトリを用意する(例: riron-data)"),
+        h("li", {}, h("a", { href: "https://github.com/settings/personal-access-tokens/new", target: "_blank", rel: "noopener" }, "トークンの作成ページ"),
+          "で、そのリポジトリだけを選び、権限は Contents を「Read and write」にして作る(期限は 1 年)"),
+        h("li", {}, "下に入力して接続する。PC で接続すると、「スマホ用データ」にも設定が入るので、スマホでは入力不要です")),
+      h("div", { class: "form-row" }, h("label", { class: "title" }, "リポジトリ"), h("div", {}, repo)),
+      h("div", { class: "form-row" }, h("label", { class: "title" }, "トークン"), h("div", {}, token)),
+      h("button", { class: "btn primary", onclick: async () => {
+        try {
+          Sync.configure({ repo: repo.value, token: token.value });
+          say("接続を確認しています…");
+          await Sync.test();
+          await Sync.run();
+          await load();
+          draw();
+        } catch (e) { Sync.disconnect(); say(`接続できませんでした: ${e.message}`, true); }
+      } }, "接続して同期する"),
+      msg);
+  };
+  draw();
+  return box;
+}
+
 // 端末内で動いているとき、しばらく書き出していなければバックアップを促す
 function backupNotice() {
+  if (Sync.configured()) return null;
   const { at, logAtExport, logNow } = Local.lastExport();
   if (logNow === logAtExport) return null;
   const days = at ? (Date.now() - Srs.parse(at)) / DAY_MS : Infinity;
@@ -1665,6 +1734,7 @@ function renderImportScreen() {
       let json;
       try { json = JSON.parse(await f.text()); } catch { throw new Error("JSON として読めませんでした"); }
       await api("/api/import", json);
+      applySyncFromFile(json);
       await load();
       location.hash = "#/";
       render();
@@ -1674,9 +1744,9 @@ function renderImportScreen() {
     h("h1", {}, "はじめに: データを入れる"),
     h("p", {}, "このアプリには教材のデータが入っていません。PC で書き出したファイルを、この端末に取り込みます。"),
     h("ol", {},
-      h("li", {}, "PC で理論暗記ツールを開き、「設定」→「学習記録の同期」の「スマホ用データを書き出す」を押す"),
+      h("li", {}, "PC で理論暗記ツールを開き、「設定」→「手動での受け渡し・バックアップ」の「スマホ用データを書き出す」を押す(自動同期を設定済みなら、スマホの接続設定も入ります)"),
       h("li", {}, "できたファイル(riron-phone-….json)を、このスマホに送る(USB ケーブル、自分だけが見られるクラウドのフォルダなど)"),
-      h("li", {}, "下のボタンでそのファイルを選ぶ")),
+      h("li", {}, "下のボタンでそのファイルを選ぶ(取り込んだら、ファイルは削除してください)")),
     h("div", {}, file),
     msg,
     h("p", { class: "small muted" }, "教材のデータと学習記録は、この端末の中だけに保存されます。アプリを置いているサーバーには送られません。")));
@@ -1764,14 +1834,53 @@ async function render() {
 window.addEventListener("hashchange", async () => {
   // 学習中以外の画面に移るときは最新の状態を読み直す
   try {
-    if (currentRoute().name !== "study") await load();
+    if (currentRoute().name !== "study") { await load(); Sync.soon(3000); }
   } catch (e) {
     if (e.code === "no-data") return renderImportScreen();
   }
   render();
 });
 
-detectBackend().then(load).then(render).catch((e) => {
+// ---------- 自動同期 ----------
+function showSyncBadge(s) {
+  const el = document.getElementById("sync-badge");
+  if (!el) return;
+  const t = (iso) => Srs.iso(new Date(iso)).slice(11, 16);
+  const text = {
+    off: "", idle: s.at ? `同期 ${t(s.at)}` : "未同期", syncing: "同期中…",
+    ok: `同期済み ${s.at ? t(s.at) : ""}`, offline: "オフライン", error: "同期エラー",
+  }[s.state] || "";
+  el.textContent = text;
+  el.title = s.message || "";
+  el.classList.toggle("bad", s.state === "error");
+}
+
+// 他の端末の記録を取り込んだら、学習中でなければ画面を読み直す
+async function afterSync(result) {
+  if (!result || !result.merged || currentRoute().name === "study") return;
+  try { await load(); render(); } catch { /* 次の操作で読み直す */ }
+}
+
+function startSync() {
+  Sync.init({
+    kind: LOCAL ? "phone" : "pc",
+    exportFn: () => (LOCAL ? api("/api/export", {}) : api("/api/export")),
+    importFn: (rec) => api("/api/import", rec),
+    onStatus: showSyncBadge,
+    onPushed: () => { if (LOCAL) Local.markExported(); },  // 同期できていればバックアップにもなっている
+    onSynced: afterSync,
+  });
+  Sync.run().then(afterSync).catch(() => {});
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible") Sync.run().then(afterSync).catch(() => {});
+  });
+}
+
+detectBackend().then(async () => {
+  startSync();
+  await load();
+  render();
+}).catch((e) => {
   if (e.code === "no-data") return renderImportScreen();
   document.getElementById("app").replaceChildren(h("p", {}, `読み込みに失敗しました: ${e.message}`));
 });

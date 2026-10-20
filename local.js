@@ -281,7 +281,15 @@ const Local = (() => {
   }
 
   // ---- ルーティング ----
-  async function request(path, body) {
+  // 操作は 1 つずつ順番に処理する(同期の取り込みと評価が重なって記録が食い違わないように)
+  let queue = Promise.resolve();
+  function request(path, body) {
+    const run = queue.then(() => dispatch(path, body));
+    queue = run.catch(() => {});
+    return run;
+  }
+
+  async function dispatch(path, body) {
     await init();
     if (path === "/api/data") return data();
     if (path === "/api/connect") return { lan: false, local_app: true };

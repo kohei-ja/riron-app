@@ -3,8 +3,8 @@
 // アプリ本体(HTML/JS/CSS/アイコン)を端末にしまって、圏外でも開けるようにする。
 // 教材のデータと学習記録は IndexedDB に入っていて、ここでは扱わない。
 // 公開するときは CACHE の版を内容に合わせて更新する(riron publish)。
-const CACHE = "riron-app-ef11f7b9d6";
-const SHELL = ["./", "index.html", "style.css", "srs.js", "local.js", "app.js", "manifest.webmanifest", "icon-180.png", "icon-512.png"];
+const CACHE = "riron-app-bf07639bd9";
+const SHELL = ["./", "index.html", "style.css", "srs.js", "local.js", "sync.js", "app.js", "manifest.webmanifest", "icon-180.png", "icon-512.png"];
 
 self.addEventListener("install", (e) => {
   e.waitUntil(caches.open(CACHE).then((c) => c.addAll(SHELL)).then(() => self.skipWaiting()));
