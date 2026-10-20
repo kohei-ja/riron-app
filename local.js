@@ -131,7 +131,7 @@ const Local = (() => {
     const now = new Date();
     const before = stateOf(body.card_id);
     const after = Srs.schedule(before, type, grade, now, settings().max_interval, body.score ?? null);
-    const shown = before.status === "new" ? Srs.startStage(type) : before.status === "review" ? Srs.FINAL_STAGE : before.stage;
+    const shown = before.status === "new" ? Srs.startStage(type) : before.status === "review" ? Srs.FINAL_STAGE : Math.max(before.stage, Srs.startStage(type));
     const row = {
       card_id: body.card_id, ts: after.last_review, grade, stage: shown, status_before: before.status,
       mode: body.mode ?? null, score: body.score ?? null, duration_ms: body.duration_ms ?? null,

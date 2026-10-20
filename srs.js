@@ -5,7 +5,7 @@
 const Srs = (() => {
   const AGAIN = 1, HARD = 2, GOOD = 3, EASY = 4;
   const FINAL_STAGE = 2;
-  const STAGED_TYPES = ["yoten", "kitei"];
+  const STAGED_TYPES = ["yoten"];
   const DAY_START_HOUR = 4;
   const REVIEW_LADDER = [1, 2, 6, 14, 31];
   const TARGET_RECALL = 0.9;
@@ -53,6 +53,7 @@ const Srs = (() => {
       s.status = "learning";
       s.stage = startStage(type);
     }
+    s.stage = Math.max(s.stage, startStage(type)); // 段階を持っていた頃の規定の学習途中の状態
     s.reps += 1;
     s.last_review = iso(now);
     s.last_score = score;

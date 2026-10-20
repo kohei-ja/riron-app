@@ -4,7 +4,7 @@ const TYPE_LABEL = { yoten: "要点", kitei: "規定", riron: "理論チェッ�
 const STAGE_LABEL = ["キーワード穴埋め", "頭文字ヒント", "白紙から再現"];
 const MASTERY_LABEL = ["未学習", "キーワード段階", "頭文字段階", "再現できた", "定着", "完全定着"];
 const GRADE_LABEL = { 1: "もう一度", 2: "あやふや", 3: "OK", 4: "完璧" };
-const STAGED = new Set(["yoten", "kitei"]);
+const STAGED = new Set(["yoten"]); // 規定は赤字の穴埋めだけで覚える
 const MEMORIZE = new Set(["yoten", "kitei"]); // 暗記の中心(定着率などの集計対象)
 const DAY_MS = 86400e3;
 const LADDER = Srs.REVIEW_LADDER; // 忘却曲線に沿った卒業後の復習間隔(srs.py・srs.js と同じ)
@@ -159,7 +159,8 @@ function tipOn(el, html) {
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
 
 // ---------- リッチテキストの描画 ----------
-// how: full(全表示) / kwhide(キーワードを隠す) / skeleton(各文節の頭文字だけ) / kwinput(キーワードを入力欄に)
+// how: full(全表示) / skeleton(各文節の頭文字だけ) / kwinput(キーワードを入力欄に)
+//      / redsheet(キーワードを赤シートで覆う。クリックでめくる。opts.toggle なら再クリックで戻す)
 function renderRuns(runs, how, opts = {}) {
   const root = h("span", { class: "answer-runs" });
   const inputs = [];
@@ -187,7 +188,18 @@ function appendPhrases(parent, line, k, how, opts) {
   const parts = line.match(/[^、。，．「」『』（）]*[、。，．「」『』（）]?/g).filter(Boolean);
   for (const p of parts) {
     const span = h("span", { class: "ph" + (k ? " kw" : "") });
-    const hideAll = (how === "kwhide" || how === "kwinput") && k;
+    if (how === "redsheet" && k && p.trim()) {
+      span.textContent = p;
+      span.classList.add("sheet");
+      span.title = "クリックでめくる";
+      span.addEventListener("click", () => {
+        if (span.classList.contains("sheet")) { span.classList.remove("sheet"); opts.onOpen?.(); }
+        else if (opts.toggle) span.classList.add("sheet");
+      });
+      parent.append(span);
+      continue;
+    }
+    const hideAll = how === "kwinput" && k;
     if (!hideAll && how !== "skeleton") {
       span.textContent = p;
       parent.append(span);
@@ -303,7 +315,9 @@ function checkInputs(inputs) {
 
 // ---------- 学習セッション ----------
 function studyMode() {
-  try { return localStorage.getItem("studyMode") || "auto"; } catch { return "auto"; }
+  let m;
+  try { m = localStorage.getItem("studyMode") || "auto"; } catch { m = "auto"; }
+  return m === "self" ? "redsheet" : m; // 口頭・手書きモードは赤シートに統合した
 }
 function setStudyMode(m) {
   try { localStorage.setItem("studyMode", m); } catch { /* 保存できなくても動作は続ける */ }
@@ -422,13 +436,14 @@ function gradeHints(c) {
   const maxI = settings().max_interval;
   const days = (n) => `${Math.round(Math.min(maxI, n))}日後`;
   if (s.status === "review") {
+    const relearn = STAGED.has(c.type) ? "頭文字から再学習" : "すぐ再出題";
     const ivl = Math.max(1, s.interval);
     if (s.due && new Date() < new Date(s.due)) {
       const keep = `予定どおり ${fmtDay(dayKey(s.due))}`;
-      return { 1: "頭文字から再学習", 2: keep, 3: keep, 4: keep };
+      return { 1: relearn, 2: keep, 3: keep, 4: keep };
     }
     return {
-      1: "頭文字から再学習",
+      1: relearn,
       2: days(Math.max(1, ivl * 1.2)),
       3: days(nextInterval(ivl, s.ease, 1)),
       4: days(nextInterval(ivl, Math.min(3, s.ease + 0.15), 2)),
@@ -451,7 +466,7 @@ function renderStudy(app) {
   const c = BY_ID[S.cur.id];
   const s = st(c.id);
   const cur = S.cur;
-  const stage = S.mock ? 2 : shownStage(c);
+  const stage = c.type === "kitei" ? 0 : S.mock ? 2 : shownStage(c);
   const mode = studyMode();
   cur.typing = c.type !== "maru" && (mode === "typing" || (mode === "auto" && s.status !== "review"));
   const total = S.done + S.queue.length + 1;
@@ -475,6 +490,7 @@ function renderStudy(app) {
     h("span", { class: "muted" }, `p.${c.page ?? "-"}`),
     c.lecture ? h("span", { class: "chip" }, `第${c.lecture}講`) : null,
     h("span", { class: "spacer" }),
+    c.type === "kitei" ? h("span", { class: `stage-badge ${s.status === "review" ? "stage-review" : "stage-0"}` }, s.status === "review" ? "復習: 赤字の穴埋め" : "赤字の穴埋め") :
     S.mock ? h("span", { class: "stage-badge stage-mock" }, "模擬テスト: 白紙から") :
     STAGED.has(c.type) ? h("span", { class: `stage-badge ${s.status === "review" ? "stage-review" : `stage-${stage}`}` }, s.status === "review" ? "復習" : `段階 ${stage + 1}/3: ${STAGE_LABEL[stage]}`) : null);
 
@@ -506,9 +522,9 @@ function modeSelect() {
     title: "解答方法",
     onchange: (e) => { setStudyMode(e.target.value); render(); },
   },
-  h("option", { value: "auto" }, "自動(新規=タイピング/復習=口頭)"),
+  h("option", { value: "auto" }, "自動(新規=タイピング/復習=赤シート)"),
   h("option", { value: "typing" }, "タイピング"),
-  h("option", { value: "self" }, "口頭・手書き"));
+  h("option", { value: "redsheet" }, "赤シート"));
   sel.value = studyMode();
   return sel;
 }
@@ -538,6 +554,19 @@ function revealed(after, ...content) {
   document.activeElement?.blur?.();
 }
 
+// 赤シート: キーワードを思い出してからクリックでめくる。全部めくるか「全部めくる」で評価へ
+function redSheet(runs, work, after) {
+  const { el } = renderRuns(runs, "redsheet", {
+    onOpen: () => { if (!el.querySelector(".sheet") && !S.cur.revealed) revealed(after); },
+  });
+  work.append(h("div", { class: "small muted" }, "赤シートの下を思い出してから、クリックでめくって確認"),
+    h("div", { class: "answer" }, el),
+    revealButton("全部めくる", () => {
+      el.querySelectorAll(".sheet").forEach((x) => x.classList.remove("sheet"));
+      revealed(after);
+    }));
+}
+
 function renderMemorize(c, stage, panel, work, after) {
   const cur = S.cur;
   panel.append(questionBlock(c));
@@ -545,6 +574,12 @@ function renderMemorize(c, stage, panel, work, after) {
   // キーワードのない解答は穴埋めができないので頭文字ヒントで出す
   const effStage = stage === 0 && !hasKeywords(c.a) ? 1 : stage;
   const peek = () => { cur.peeks++; };
+
+  if (c.type === "kitei" && !hasKeywords(c.a)) {
+    // 赤字のない規定は覚える語句がないので、読んで確認するだけ
+    work.append(fullAnswer(), revealButton("確認した", () => revealed(after)));
+    return;
+  }
 
   if (cur.typing) {
     if (effStage === 0) {
@@ -575,11 +610,9 @@ function renderMemorize(c, stage, panel, work, after) {
     return;
   }
 
-  // 口頭・手書き
-  if (effStage === 0) {
-    work.append(h("div", { class: "small muted" }, "空欄のキーワードを言ってみてから答えを見る(空欄クリックで個別に確認)"),
-      h("div", { class: "answer" }, renderRuns(c.a, "kwhide", { peek }).el));
-  } else if (effStage === 1) {
+  // タイピングしないとき: キーワード段階は赤シート、それ以降は言う・書いてから答えを見る
+  if (effStage === 0) return redSheet(c.a, work, after);
+  if (effStage === 1) {
     work.append(h("div", { class: "small muted" }, "頭文字をヒントに全文を言う・書く(文節クリックで個別に確認)"),
       h("div", { class: "answer" }, renderRuns(c.a, "skeleton", { peek }).el));
   } else {
@@ -612,12 +645,7 @@ function renderRiron(c, panel, work, after) {
     }));
     return;
   }
-  const peek = () => { cur.peeks++; };
-  panel.append(h("div", { class: "answer" }, renderRuns(c.q, "kwhide", { peek }).el));
-  work.append(revealButton("答えを見る", () => {
-    if (cur.peeks) cur.suggest = 2;
-    revealed(after, h("div", { class: "answer" }, renderRuns(c.q, "full").el));
-  }));
+  redSheet(c.q, work, after);
 }
 
 function renderMaru(c, panel, work, after) {
@@ -1414,6 +1442,7 @@ function renderList(app, params) {
   let F;
   try { F = JSON.parse(localStorage.getItem("listFilter") || "null"); } catch { F = null; }
   F = F || { types: ["yoten", "kitei", "riron", "maru"], stars: [2, 1, 0], q: "" };
+  listSheet = !!F.sheet;
   const save = () => { try { localStorage.setItem("listFilter", JSON.stringify(F)); } catch { /* 無視 */ } };
   const body = h("div", {});
 
@@ -1452,12 +1481,19 @@ function renderList(app, params) {
   const search = h("input", { type: "search", placeholder: "語句で検索", value: F.q, style: "padding:4px 8px;border:1px solid var(--border);border-radius:6px;background:var(--surface)",
     oninput: (e) => { F.q = e.target.value.trim(); save(); draw(); } });
 
+  const sheetChip = h("button", { class: "chip sheet-chip" + (F.sheet ? " on" : ""), title: "太字・赤字のキーワードを赤シートで隠す(クリックでめくる/戻す)", onclick: (e) => {
+    F.sheet = listSheet = !F.sheet;
+    e.currentTarget.classList.toggle("on"); save(); draw();
+  } }, "赤シート");
+
   app.append(h("h1", {}, "一覧"),
-    h("p", { class: "small muted" }, "問題をクリックすると解答を表示します(熟読用)。"),
-    h("div", { class: "filters" }, typeChips, h("span", { class: "muted" }, "|"), starChips, search),
+    h("p", { class: "small muted" }, "問題をクリックすると解答を表示します(熟読用)。赤シートをオンにすると、キーワードを隠した状態で表示します。"),
+    h("div", { class: "filters" }, typeChips, h("span", { class: "muted" }, "|"), starChips, search, h("span", { class: "muted" }, "|"), sheetChip),
     body);
   draw();
 }
+
+let listSheet = false; // 一覧の赤シート
 
 function cardRow(c, expanded) {
   const s = st(c.id);
@@ -1467,7 +1503,7 @@ function cardRow(c, expanded) {
     fill(detail,
       c.type === "riron" ? null : h("div", { class: "question", style: "font-size:1rem" }, runsText(c.q)),
       c.type === "maru" ? h("p", {}, "正解: ", h("b", {}, c.verdict)) : null,
-      h("div", { class: "answer" }, renderRuns(c.type === "riron" ? c.q : c.a, "full").el),
+      h("div", { class: "answer" }, renderRuns(c.type === "riron" ? c.q : c.a, listSheet ? "redsheet" : "full", { toggle: true }).el),
       s2.status !== "new" ? h("div", { style: "margin-top:8px" }, cardCurve(c)) : null,
       h("div", { class: "row small muted", style: "margin-top:8px" },
         h("span", {}, `${c.id} ・ ${c.lecture ? `第${c.lecture}講で学習` : "講義計画外"} ・ ${MASTERY_LABEL[s2.mastery]}`),
@@ -1527,7 +1563,7 @@ function renderSettings(app) {
       h("div", {}, h("div", { class: "small muted", style: "margin-bottom:6px" },
         "まだ学習計画表をもらっていない講義の章です。先に学習したい章があればチェックしてください(章全体が出題対象になります)。"),
       h("div", { class: "chap-grid" }, chapBoxes))),
-    h("div", { class: "form-row" }, h("label", { class: "title" }, "1日の新規枚数"), h("div", {}, daily, h("div", { class: "small muted" }, "要点・規定は 1 枚につき 3 段階を同じ日に進めます。20 枚で 1 日 30〜60 分程度が目安です。復習が多い日も新規の枚数は減らないので、負担を見て調整してください。"))),
+    h("div", { class: "form-row" }, h("label", { class: "title" }, "1日の新規枚数"), h("div", {}, daily, h("div", { class: "small muted" }, "要点は 1 枚につき 3 段階を同じ日に進めます(規定は赤字の穴埋めのみ)。20 枚で 1 日 30〜60 分程度が目安です。復習が多い日も新規の枚数は減らないので、負担を見て調整してください。"))),
     h("div", { class: "form-row" }, h("label", { class: "title" }, "新規に出す種類"), h("div", {}, typeBoxes, h("div", { class: "small muted" }, "理論チェック・〇×は「範囲を指定して練習」やミニテスト対策から解く使い方もできます。"))),
     h("div", { class: "form-row" }, h("label", { class: "title" }, "新規の出題順"), h("div", {}, order)),
     h("div", { class: "form-row" }, h("label", { class: "title" }, "復習間隔の上限(日)"), h("div", {}, maxI, h("div", { class: "small muted" }, "試験まで忘れないよう、長く空けすぎないための上限です。"))),
@@ -1758,13 +1794,14 @@ function renderGuide(app) {
 <h1>暗記の進め方</h1>
 <p>本試験の理論は記述式です。目標は「問題文を見たら、解答をすらすら言える・書ける」状態にすることです。このツールは、<b>思い出す練習(アクティブリコール)</b>と<b>間隔を空けた復習</b>を軸にしています。</p>
 
-<h2>1. 3 段階で隠す量を増やす(要点チェック・規定)</h2>
+<h2>1. 3 段階で隠す量を増やす(要点チェック)</h2>
 <ol>
 <li><b>キーワード穴埋め</b>: テキストの太字・赤字(採点で見られやすい語句)だけを空欄にします。まず骨格になる語句を確実にします。</li>
 <li><b>頭文字ヒント</b>: 各文節の 1 文字目だけを見せ、文の流れ(つなぎ)を再現します。</li>
 <li><b>白紙から再現</b>: 問題文だけを見て全文を言う・書く。ここで「OK」以上なら卒業して復習に回ります。</li>
 </ol>
 <p>同じ日のうちに 1 → 2 → 3 と進みます。あやしいところは文節をクリックすれば、その部分だけ確認できます。</p>
+<p><b>規定</b>は全文を書けるようになる必要はないので、<b>赤字の穴埋めだけ</b>で出題します。穴埋めができたら卒業して復習に回り、復習も赤字の穴埋めで行います。</p>
 
 <h2>2. 忘却曲線に合わせて復習する</h2>
 <p>エビングハウスの忘却曲線のとおり、覚えた内容は直後から急に忘れ、時間がたつほどゆっくり忘れていきます。思い出すたびに記憶が強くなり、次に忘れるまでの時間が延びます。</p>
@@ -1790,7 +1827,8 @@ function renderGuide(app) {
 <ol>
 <li>ホームの「今日の学習を始める」で、<b>復習を優先</b>しつつ新規を混ぜて出題します。</li>
 <li>新規は <b>★★ → ★ → 無印</b> の順(設定で章順にも変更可)。学習計画表をもとに、<b>受講済みの講義で習った範囲だけ</b>が対象です。講義を受けたら、設定の「受講済みの講義」を進めてください。</li>
-<li>新しく覚えるとき(新規・学習中)は<b>タイピング</b>で正確さを確認し、復習は<b>口頭・手書き</b>で素早く回すのがおすすめです(「自動」がこの動きです)。</li>
+<li>新しく覚えるとき(新規・学習中)は<b>タイピング</b>で正確さを確認し、復習は<b>赤シート</b>で素早く回すのがおすすめです(「自動」がこの動きです)。</li>
+<li>解答方法を<b>赤シート</b>にすると、キーワード穴埋めの段階(規定・理論チェックは常に)でキーワードが赤く塗りつぶされ、クリックでめくって確認できます。一覧でも「赤シート」をオンにすると同じように隠せます。</li>
 <li>講義の復習としてテキストを熟読するときは「一覧」で問題と解答を読み、〇×・理論チェックは「範囲を指定して練習」から章ごとに解きます。</li>
 </ol>
 
