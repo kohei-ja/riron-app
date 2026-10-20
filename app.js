@@ -714,9 +714,11 @@ function renderSessionEnd(app) {
   if (!S.celebrated) { S.celebrated = true; confetti(); }
   const good = S.results[3] + S.results[4];
   if (S.mock) return renderMockResult(app, good);
+  if (S.evolved === undefined) S.evolved = owlEvolved();
+  const evolvedMsg = S.evolved !== null ? `進化したホー!「${OWL_FORMS[S.evolved]}」になった! ` : "";
   app.append(h("h1", {}, "おつかれさまでした"),
     h("div", { class: "panel" },
-      mascot("cheer", `${S.done} 回答、${mins} 分がんばったホー!OK 以上が ${good} 回。今日思い出した分だけ、忘れにくくなっているよ。`, "lg"),
+      mascot("cheer", `${evolvedMsg}${S.done} 回答、${mins} 分がんばったホー!OK 以上が ${good} 回。今日思い出した分だけ、忘れにくくなっているよ。`, "lg"),
       h("p", {}, `${S.title}: ${S.done} 回答 / ${mins} 分`),
       h("div", { class: "row" }, [1, 2, 3, 4].map((g) => h("span", { class: "chip" }, `${GRADE_LABEL[g]} ${S.results[g]}`))),
       h("div", { class: "row", style: "margin-top:16px" },
@@ -744,37 +746,144 @@ document.addEventListener("keydown", (e) => {
   else if ((e.key === " " || e.key === "Enter") && S.cur.suggest) { e.preventDefault(); submitGrade(S.cur.suggest); }
 });
 
-// ---------- マスコット(フクロウ先生) ----------
-function owlSvg(mood = "normal") {
-  const ink = "#2b2350";
-  const eyes = mood === "happy" || mood === "cheer"
-    ? `<path d="M38 55 q10 -11 20 0 M62 55 q10 -11 20 0" stroke="${ink}" stroke-width="4.5" fill="none" stroke-linecap="round"/>`
-    : `<circle cx="48" cy="54" r="12" fill="#fff"/><circle cx="72" cy="54" r="12" fill="#fff"/>
-       <circle cx="${mood === "think" ? 51 : 49}" cy="${mood === "think" ? 50 : 55}" r="6" fill="${ink}"/>
-       <circle cx="${mood === "think" ? 75 : 73}" cy="${mood === "think" ? 50 : 55}" r="6" fill="${ink}"/>
-       <circle cx="${mood === "think" ? 53 : 51}" cy="${mood === "think" ? 48 : 53}" r="2" fill="#fff"/>
-       <circle cx="${mood === "think" ? 77 : 75}" cy="${mood === "think" ? 48 : 53}" r="2" fill="#fff"/>`;
-  const leftWing = `<ellipse cx="25" cy="80" rx="10" ry="22" fill="#5a49bd" transform="rotate(12 25 80)"/>`;
-  const rightWing = mood === "cheer"
-    ? `<ellipse cx="100" cy="58" rx="10" ry="22" fill="#5a49bd" transform="rotate(-35 100 58)"/>`
-    : `<ellipse cx="95" cy="80" rx="10" ry="22" fill="#5a49bd" transform="rotate(-12 95 80)"/>`;
-  const sparkle = mood === "cheer"
+// ---------- マスコット(フクロウ先生)の成長 ----------
+// 定着率(ホームの「定着」タイルと同じ数字)が 5% 上がるごとに姿が変わる。0% = たまご、100% = 最終形態
+const OWL_FORMS = [
+  "たまご", "ゆれるたまご", "ひびわれたまご", "うまれたてヒナ", "ふわふわヒナ",
+  "はちまきヒナ", "えんぴつヒナ", "子フクロウ", "メガネの子フクロウ", "本の虫フクロウ",
+  "フクロウ先生", "電卓フクロウ先生", "ネクタイ先生", "ベテラン先生", "マントの先生",
+  "銀の角帽先生", "金の角帽先生", "黄金のフクロウ", "王冠のフクロウ", "虹色のフクロウ", "伝説の税理士フクロウ",
+];
+
+function fixedRate() {
+  const mem = DATA ? memorizeCards() : []; // データの読み込み前(スマホの初回画面など)はたまご
+  const fixed = mem.filter((c) => st(c.id).mastery >= 4).length;
+  const pct = mem.length ? Math.round((fixed / mem.length) * 100) : 0;
+  return { mem, fixed, pct };
+}
+const owlLevel = (pct = fixedRate().pct) => Math.min(OWL_FORMS.length - 1, Math.floor(pct / 5));
+
+// 前に見た姿より育っていたら新しい段階を返す(端末ごとに覚える。下がったときは黙って覚え直す)
+function owlEvolved() {
+  const level = owlLevel();
+  let seen = null;
+  try { seen = localStorage.getItem("owlLevel"); } catch { /* 無視 */ }
+  try { localStorage.setItem("owlLevel", String(level)); } catch { /* 無視 */ }
+  return seen !== null && level > Number(seen) ? level : null;
+}
+
+const OWL_INK = "#2b2350";
+
+function owlEyes(mood) {
+  const ink = OWL_INK;
+  if (mood === "happy" || mood === "cheer") {
+    return `<path d="M38 55 q10 -11 20 0 M62 55 q10 -11 20 0" stroke="${ink}" stroke-width="4.5" fill="none" stroke-linecap="round"/>`;
+  }
+  const t = mood === "think";
+  return `<circle cx="48" cy="54" r="12" fill="#fff"/><circle cx="72" cy="54" r="12" fill="#fff"/>
+    <circle cx="${t ? 51 : 49}" cy="${t ? 50 : 55}" r="6" fill="${ink}"/>
+    <circle cx="${t ? 75 : 73}" cy="${t ? 50 : 55}" r="6" fill="${ink}"/>
+    <circle cx="${t ? 53 : 51}" cy="${t ? 48 : 53}" r="2" fill="#fff"/>
+    <circle cx="${t ? 77 : 75}" cy="${t ? 48 : 53}" r="2" fill="#fff"/>`;
+}
+
+function eggSvg(level) {
+  const ink = OWL_INK;
+  const wobble = level === 1
+    ? `<path d="M16 58 q-6 9 0 18 M104 58 q6 9 0 18" stroke="#c9bdf5" stroke-width="3" fill="none" stroke-linecap="round"/>` : "";
+  const crack = level === 2
+    ? `<path d="M28 62 l8 -6 8 6 8 -6 8 6 8 -6 8 6 8 -6 8 6 v9 l-8 5 -8 -5 -8 5 -8 -5 -8 5 -8 -5 -8 5 -8 -5 Z" fill="${ink}"/>
+       <circle cx="50" cy="66" r="4.5" fill="#fff"/><circle cx="70" cy="66" r="4.5" fill="#fff"/>
+       <circle cx="51" cy="67" r="2.3" fill="${ink}"/><circle cx="71" cy="67" r="2.3" fill="${ink}"/>` : "";
+  return `<ellipse cx="60" cy="112" rx="26" ry="4" fill="#000" opacity=".08"/>${wobble}
+    <g transform="${level === 1 ? "rotate(-9 60 110)" : ""}">
+      <ellipse cx="60" cy="66" rx="34" ry="44" fill="#fff4dc" stroke="#ecd9a8" stroke-width="2"/>
+      <circle cx="44" cy="44" r="6" fill="#ffd8a8"/><circle cx="76" cy="88" r="8" fill="#c9bdf5"/>
+      <circle cx="72" cy="40" r="4" fill="#c9bdf5"/><circle cx="42" cy="92" r="4" fill="#ffd8a8"/>
+      ${crack}
+    </g>`;
+}
+
+function birdSvg(mood, level) {
+  const ink = OWL_INK;
+  const has = (from, to = 99) => level >= from && level <= to;
+  const chick = level <= 6, owlet = level >= 7 && level <= 9, gold = level >= 17;
+  const col = gold ? { body: "#e2a90a", head: "#f6c945", wing: "#c48c00", belly: "#fff4d0", line: "#f0d27a" }
+    : chick ? { body: "#b4a8f2", head: "#c6bcf6", wing: "#9d8fe8", belly: "#f6f2ff", line: "#ddd5fb" }
+    : owlet ? { body: "#7f6ddc", head: "#9d8fec", wing: "#6a58cc", belly: "#efe9ff", line: "#c9bdf5" }
+    : { body: "#6d5bd0", head: "#8f7fe6", wing: "#5a49bd", belly: "#efe9ff", line: "#c9bdf5" };
+  const scale = chick ? 0.72 : owlet ? 0.86 : 1;
+  const parts = [];
+  if (has(14)) parts.push(`<path d="M30 46 Q60 36 90 46 L108 112 Q60 120 12 112 Z" fill="#c1121f"/>`);
+  if (has(7)) parts.push(`<path d="M33 42 L28 21 L47 35 Z M87 42 L92 21 L73 35 Z" fill="${col.body}"/>`);
+  parts.push(`<ellipse cx="25" cy="80" rx="10" ry="22" fill="${col.wing}" transform="rotate(12 25 80)"/>`);
+  parts.push(mood === "cheer"
+    ? `<ellipse cx="100" cy="58" rx="10" ry="22" fill="${col.wing}" transform="rotate(-35 100 58)"/>`
+    : `<ellipse cx="95" cy="80" rx="10" ry="22" fill="${col.wing}" transform="rotate(-12 95 80)"/>`);
+  parts.push(`<ellipse cx="60" cy="70" rx="37" ry="41" fill="${col.body}"/>
+    <ellipse cx="60" cy="88" rx="22" ry="20" fill="${col.belly}"/>
+    <path d="M52 84 q4 4 8 0 q4 4 8 0 M48 94 q4 4 8 0 q4 4 8 0 q4 4 8 0" stroke="${col.line}" stroke-width="2" fill="none"/>`);
+  if (chick) parts.push(`<path d="M57 37 q-4 -12 6 -15 q-5 7 1 15 Z" fill="${col.head}"/>`);
+  parts.push(`<ellipse cx="60" cy="55" rx="31" ry="21" fill="${col.head}"/>
+    <circle cx="36" cy="66" r="5" fill="#ff8fb8" opacity=".7"/><circle cx="84" cy="66" r="5" fill="#ff8fb8" opacity=".7"/>
+    ${owlEyes(mood)}
+    <path d="M55 63 L65 63 L60 71 Z" fill="#ff9f1c"/>
+    <ellipse cx="48" cy="110" rx="7" ry="4" fill="#ff9f1c"/><ellipse cx="72" cy="110" rx="7" ry="4" fill="#ff9f1c"/>`);
+  if (level === 3) {
+    parts.push(`<path d="M20 92 l7.6 -8 7.6 8 7.6 -8 7.6 8 7.6 -8 7.6 8 7.6 -8 7.6 8 7.6 -8 7.6 8 L100 108 Q60 122 20 108 Z" fill="#fff4dc" stroke="#ecd9a8" stroke-width="2"/>`);
+  }
+  if (has(5, 6)) {
+    parts.push(`<path d="M89 44 l13 -6 -2 10 Z M89 47 l12 9 -11 2 Z" fill="#fff" stroke="#e0dcef" stroke-width="1"/>
+      <path d="M29 42 Q60 27 91 42 L91 51 Q60 36 29 51 Z" fill="#fff" stroke="#e0dcef" stroke-width="1"/>
+      <circle cx="60" cy="39" r="4.5" fill="#e63946"/>`);
+  }
+  if (level === 6) {
+    parts.push(`<g transform="rotate(28 100 84)"><rect x="96" y="58" width="8" height="5" fill="#ff8fb8"/>
+      <rect x="96" y="63" width="8" height="32" fill="#ffd23f"/><path d="M96 95 h8 l-4 9 Z" fill="#f4c99a"/><path d="M98.6 101 h2.8 l-1.4 3 Z" fill="${ink}"/></g>`);
+  }
+  if (has(8, 9)) parts.push(`<g fill="none" stroke="${ink}" stroke-width="2.5"><circle cx="47" cy="54" r="13"/><circle cx="73" cy="54" r="13"/></g>`);
+  if (level === 9) {
+    parts.push(`<path d="M36 86 l24 6 24 -6 v20 l-24 6 -24 -6 Z" fill="#2a78d6"/><path d="M60 92 v20" stroke="#fff" stroke-width="2"/>
+      <path d="M41 91 l15 4 M41 96 l15 4 M64 95 l15 -4 M64 100 l15 -4" stroke="#cfe3ff" stroke-width="1.5"/>`);
+  }
+  if (has(12)) parts.push(`<path d="M56 72 h8 l-2 5 4 15 -6 7 -6 -7 4 -15 Z" fill="#e63946"/>`);
+  if (has(13, 19)) parts.push(`<path d="M82 84 l2.6 5.2 5.7 .8 -4.1 4 1 5.7 -5.2 -2.7 -5.2 2.7 1 -5.7 -4.1 -4 5.7 -.8 Z" fill="#ffd23f" stroke="#b07800" stroke-width="1"/>`);
+  if (level === 20) {
+    parts.push(`<circle cx="82" cy="92" r="9" fill="#ffd23f" stroke="#b07800" stroke-width="1.5"/>
+      <text x="82" y="96" text-anchor="middle" font-size="11" font-weight="700" fill="#8a1c1c">税</text>`);
+  }
+  if (level === 11) {
+    const keys = [0, 1, 2].flatMap((r) => [0, 1, 2].map((c) =>
+      `<rect x="${84 + c * 6}" y="${89 + r * 5.5}" width="4" height="3.5" rx="1" fill="${r === 2 && c === 2 ? "#ff9f1c" : "#fff"}"/>`));
+    parts.push(`<g transform="rotate(-10 92 92)"><rect x="80" y="76" width="24" height="30" rx="3" fill="#3a3f4b"/>
+      <rect x="83" y="79" width="18" height="7" rx="1" fill="#b8f5c8"/>${keys.join("")}</g>`);
+  }
+  if (has(10, 17)) {
+    const cap = level >= 16 ? "#f2b705" : level === 15 ? "#aeb6c2" : ink;
+    const tassel = level >= 16 ? "#e63946" : level === 15 ? "#ffffff" : "#ffd23f";
+    parts.push(`<path d="M26 30 L60 16 L94 30 L60 44 Z" fill="${cap}"/>
+      <path d="M44 37 v8 q16 7 32 0 v-8" fill="${cap}"/>
+      <path d="M90 31 v15" stroke="${tassel}" stroke-width="2.5"/><circle cx="90" cy="48" r="3.5" fill="${tassel}"/>`);
+  }
+  if (has(18)) {
+    parts.push(`<path d="M33 40 L37 14 L48 28 L60 9 L72 28 L83 14 L87 40 Z" fill="#ffd23f" stroke="#b07800" stroke-width="2" stroke-linejoin="round"/>
+      <circle cx="60" cy="27" r="4" fill="#e63946"/><circle cx="45" cy="34" r="3" fill="#2a78d6"/><circle cx="75" cy="34" r="3" fill="#12a150"/>`);
+  }
+  const back = [];
+  if (level === 20) back.push(`<circle cx="60" cy="64" r="58" fill="#fff3b0" opacity=".55"/>`);
+  if (has(19)) {
+    back.push(["#e63946", "#ff9f1c", "#ffd23f", "#12a150", "#2a78d6", "#6d5bd0"].map((c, i) =>
+      `<path d="M${6 + i * 4} 84 A${54 - i * 4} ${54 - i * 4} 0 0 1 ${114 - i * 4} 84" stroke="${c}" stroke-width="4" fill="none" opacity=".85"/>`).join(""));
+  }
+  return `${back.join("")}<g transform="translate(60 114) scale(${scale}) translate(-60 -114)">${parts.join("")}</g>`;
+}
+
+function owlSvg(mood = "normal", level = owlLevel()) {
+  const sparkle = mood === "cheer" || level === 20
     ? `<path d="M108 24 l3 7 7 3 -7 3 -3 7 -3 -7 -7 -3 7 -3z" fill="#ffd23f"/><path d="M14 30 l2 5 5 2 -5 2 -2 5 -2 -5 -5 -2 5 -2z" fill="#ff7ab6"/>`
     : mood === "think" ? `<text x="96" y="30" font-size="20" font-weight="700" fill="#6d5bd0">?</text>` : "";
-  return `<svg viewBox="0 0 120 120" class="owl" aria-hidden="true">
-    ${sparkle}${leftWing}${rightWing}
-    <ellipse cx="60" cy="70" rx="37" ry="41" fill="#6d5bd0"/>
-    <ellipse cx="60" cy="88" rx="22" ry="20" fill="#efe9ff"/>
-    <path d="M52 84 q4 4 8 0 q4 4 8 0 M48 94 q4 4 8 0 q4 4 8 0 q4 4 8 0" stroke="#c9bdf5" stroke-width="2" fill="none"/>
-    <ellipse cx="60" cy="55" rx="31" ry="21" fill="#8f7fe6"/>
-    <circle cx="36" cy="66" r="5" fill="#ff8fb8" opacity=".7"/><circle cx="84" cy="66" r="5" fill="#ff8fb8" opacity=".7"/>
-    ${eyes}
-    <path d="M55 63 L65 63 L60 71 Z" fill="#ff9f1c"/>
-    <ellipse cx="48" cy="110" rx="7" ry="4" fill="#ff9f1c"/><ellipse cx="72" cy="110" rx="7" ry="4" fill="#ff9f1c"/>
-    <path d="M26 30 L60 16 L94 30 L60 44 Z" fill="${ink}"/>
-    <path d="M44 37 v8 q16 7 32 0 v-8" fill="${ink}"/>
-    <path d="M90 31 v15" stroke="#ffd23f" stroke-width="2.5"/><circle cx="90" cy="48" r="3.5" fill="#ffd23f"/>
-  </svg>`;
+  const body = level <= 2 ? eggSvg(level) : birdSvg(mood, level);
+  return `<svg viewBox="0 0 120 120" class="owl" aria-hidden="true">${body}${sparkle}</svg>`;
 }
 
 function mascot(mood, message, size = "md") {
@@ -958,6 +1067,8 @@ function renderHome(app) {
   else if (doneToday === 0) { mood = "normal"; msg = `今日は ${remaining} 枚だホー。忘れかけている復習から片付けよう!`; }
   else { mood = "happy"; msg = `あと ${remaining} 枚!その調子だホー。`; }
   if (streak >= 2) msg += ` ${streak} 日連続、えらい!`;
+  const evolved = owlEvolved();
+  if (evolved !== null) { mood = "cheer"; msg = `進化したホー!「${OWL_FORMS[evolved]}」になった! ${msg}`; confetti(); }
 
   app.append(
     h("div", { class: "hero" },
@@ -972,12 +1083,39 @@ function renderHome(app) {
       tile("連続学習", `${streakDays()} 日`, null, "orange"),
       tile("定着(要点・規定)", `${mem.length ? Math.round((fixed / mem.length) * 100) : 0}%`, `${fixed}/${mem.length} 枚 ・ ★★ ${twoStarFixed}/${twoStar.length}`, "green"),
       tile("今テストしたら(推定)", `${Math.round(recallAvg * 100)}%`, "解放済みの要点・規定を思い出せる確率の平均", "violet")),
+    growthPanel(),
     heatmapPanel(),
     h("div", { class: "grid grid-2" }, starPanel(mem), forecastPanel()),
     forgettingPanel(),
     pacePanel(),
     h("div", { class: "grid grid-2" }, calendarPanel(), weakPanel()),
     chapterTablePanel());
+}
+
+function growthPanel() {
+  const { mem, fixed, pct } = fixedRate();
+  const level = owlLevel(pct);
+  const last = level === OWL_FORMS.length - 1;
+  // 表示上の定着率(四捨五入)が次の 5% に届くまでの枚数
+  const need = Math.max(1, Math.ceil((((level + 1) * 5 - 0.5) / 100) * mem.length) - fixed);
+  const gallery = h("div", { class: "owl-gallery" }, OWL_FORMS.map((name, i) =>
+    h("div", { class: "owl-cell" + (i === level ? " now" : i > level ? " locked" : ""), title: i > level ? `定着 ${i * 5}% で登場` : name },
+      h("div", { class: "owl-thumb", html: owlSvg("normal", i) }),
+      h("div", { class: "owl-name" }, i > level ? "？？？" : name),
+      h("div", { class: "small muted" }, `${i * 5}%`))));
+  return h("div", { class: "panel" },
+    h("h2", {}, "フクロウ先生の成長"),
+    h("div", { class: "owl-now" },
+      h("div", { class: "owl-thumb lg", html: owlSvg("happy", level) }),
+      h("div", { class: "owl-now-text" },
+        h("div", {}, "いまの姿: ", h("b", {}, OWL_FORMS[level]), ` ・ 定着 ${pct}%`),
+        last ? h("div", { class: "bubble-main" }, "最終形態だホー!") : h("div", {},
+          h("div", { class: "progress", style: "margin:6px 0 4px" }, h("div", { style: `width:${((pct - level * 5) / 5) * 100}%` })),
+          h("div", { class: "small muted" }, mem.length ? `次の姿(定着 ${(level + 1) * 5}%)まで、あと ${need} 枚定着させよう` : "講義を受けたら、設定の「受講済みの講義」を進めてね")))),
+    h("details", { class: "owl-book" },
+      h("summary", {}, `図鑑を見る(${level + 1} / ${OWL_FORMS.length})`),
+      gallery,
+      h("p", { class: "small muted" }, "ホームの「定着」(受講済みの要点・規定のうち、復習間隔が 7 日以上になったカードの割合)が 5% 上がるごとに姿が変わります。新しい講義を受けると割合が下がり、前の姿に戻ることもあります。")));
 }
 
 function heatmapPanel() {

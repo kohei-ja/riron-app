@@ -384,3 +384,15 @@ body {
 
 .sync-badge { font-size: 11px; font-weight: normal; opacity: .9; margin-left: 4px; white-space: nowrap; }
 .sync-badge.bad { color: #ffe08a; }
+
+/* フクロウ先生の成長 */
+.owl-now { display: flex; align-items: center; gap: 14px; }
+.owl-now-text { flex: 1; min-width: 0; }
+.owl-book summary { cursor: pointer; font-weight: 600; margin-top: 10px; }
+.owl-gallery { display: grid; grid-template-columns: repeat(auto-fill, minmax(66px, 1fr)); gap: 6px; margin: 8px 0; }
+.owl-cell { text-align: center; padding: 4px 2px; border-radius: 10px; border: 2px solid transparent; }
+.owl-cell.now { border-color: var(--c-violet); background: var(--surface-2); }
+.owl-thumb { width: 52px; height: 52px; margin: 0 auto; }
+.owl-thumb.lg { width: 72px; height: 72px; margin: 0; flex: none; }
+.owl-cell.locked .owl-thumb { filter: grayscale(1) contrast(0); opacity: .45; }
+.owl-name { font-size: .7rem; line-height: 1.25; }
