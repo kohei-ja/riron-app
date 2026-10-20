@@ -1478,7 +1478,7 @@ function renderTest(app) {
       h("div", { class: "hero" }, mascot("normal", h("div", {},
         h("div", { class: "bubble-main" }, !t.lecture ? "次のテストを選んでほしいホー。"
           : inRange.length ? "範囲の講義をまだ受講していないホー。受講したら一緒に仕上げよう!" : "この範囲には理論のカードがないホー。"),
-        h("div", { class: "bubble-tip" }, "範囲は、テストの 1 回前と 2 回前の講義で習った理論だよ。毎日の 20 枚とは別に集中して仕上げられるホー。")), "lg")),
+        h("div", { class: "bubble-tip" }, `範囲は、テストの 1 回前と 2 回前の講義で習った理論だよ。毎日の ${settings().daily_new} 枚とは別に集中して仕上げられるホー。`)), "lg")),
       setup);
     return;
   }
@@ -1524,10 +1524,10 @@ function renderTest(app) {
       tile("テストまで", daysLeft == null ? "-" : `${daysLeft} 日`, t.date || "テスト日を設定してください", "red"),
       tile("仕上がり", `${pct}%`, `${ready.length}/${mem.length} 枚(想起率 85% 以上)`, "green"),
       tile("未学習", `${newCount} 枚`, "範囲内でまだ一度も解いていない", "orange"),
-      tile("1日の目安", daysLeft && daysLeft > 0 ? `${perDay} 枚` : "-", "毎日の 20 枚とは別枠", "violet")),
+      tile("1日の目安", daysLeft && daysLeft > 0 ? `${perDay} 枚` : "-", `毎日の ${settings().daily_new} 枚とは別枠`, "violet")),
     h("div", { class: "panel" },
       h("h2", {}, "集中して仕上げる"),
-      h("p", { class: "small muted" }, "ここで解いた分は毎日の新規 20 枚の枠を使いません。初めて解いたカードは、そのまま毎日の復習に組み込まれます。"),
+      h("p", { class: "small muted" }, `ここで解いた分は毎日の新規 ${settings().daily_new} 枚の枠を使いません。初めて解いたカードは、そのまま毎日の復習に組み込まれます。`),
       pendingNote,
       h("div", { class: "test-actions" }, actions.map(([cls, label, desc, list, fn]) =>
         h("button", { class: `btn test-action ${cls}`, disabled: !list.length, onclick: fn }, h("b", {}, label), h("small", {}, desc))))),
@@ -1701,7 +1701,7 @@ function renderSettings(app) {
       h("div", {}, h("div", { class: "small muted", style: "margin-bottom:6px" },
         "まだ学習計画表をもらっていない講義の章です。先に学習したい章があればチェックしてください(章全体が出題対象になります)。"),
       h("div", { class: "chap-grid" }, chapBoxes))),
-    h("div", { class: "form-row" }, h("label", { class: "title" }, "1日の新規枚数"), h("div", {}, daily, h("div", { class: "small muted" }, "要点は 1 枚につき 3 段階を同じ日に進めます(規定は赤字の穴埋めのみ)。20 枚で 1 日 30〜60 分程度が目安です。復習が多い日も新規の枚数は減らないので、負担を見て調整してください。"))),
+    h("div", { class: "form-row" }, h("label", { class: "title" }, "1日の新規枚数"), h("div", {}, daily, h("div", { class: "small muted" }, "要点は 1 枚につき 3 段階を同じ日に進めます(規定は赤字の穴埋めのみ)。10 枚で 1 日 15〜30 分程度が目安です。復習が多い日も新規の枚数は減らないので、負担を見て調整してください。"))),
     h("div", { class: "form-row" }, h("label", { class: "title" }, "新規に出す種類"), h("div", {}, typeBoxes, h("div", { class: "small muted" }, "理論チェック・〇×は「範囲を指定して練習」やミニテスト対策から解く使い方もできます。"))),
     h("div", { class: "form-row" }, h("label", { class: "title" }, "新規の出題順"), h("div", {}, order)),
     h("div", { class: "form-row" }, h("label", { class: "title" }, "復習間隔の上限(日)"), h("div", {}, maxI, h("div", { class: "small muted" }, "試験まで忘れないよう、長く空けすぎないための上限です。"))),
@@ -1971,7 +1971,7 @@ function renderGuide(app) {
 </ol>
 
 <h2>5. ミニテスト・確認テスト対策</h2>
-<p>テストは、行われる回の <b>1 回前と 2 回前の講義</b>で習った理論が範囲です。「ミニテスト」タブでテストの回とテスト日を入れると範囲が決まり、毎日の 20 枚とは別枠で集中して仕上げられます。</p>
+<p>テストは、行われる回の <b>1 回前と 2 回前の講義</b>で習った理論が範囲です。「ミニテスト」タブでテストの回とテスト日を入れると範囲が決まり、毎日の新規の枠とは別に集中して仕上げられます。</p>
 <ul>
 <li><b>まだ仕上がっていないカード</b>: 学習途中 → 忘れかけ → 未学習(★の多い順)の順に出題。テスト日までの 1 日の目安枚数も表示します。</li>
 <li><b>規定だけ</b>/<b>〇×・理論チェック</b>: 穴埋め対策や読み取りの確認に。</li>

@@ -12,7 +12,7 @@ const Local = (() => {
     exam_date: "2027-08-03",
     lectures_done: 23,
     unlocked_chapters: [],
-    daily_new: 20,
+    daily_new: 10,
     new_types: ["yoten", "kitei"],
     new_order: "stars",
     max_interval: 45,
