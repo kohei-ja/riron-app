@@ -30,6 +30,10 @@ const Sync = (() => {
     const token = String(c.token || "").trim();
     if (!/^[\w.-]+\/[\w.-]+$/.test(repo)) throw new Error("リポジトリは「ユーザー名/リポジトリ名」の形で入れてください");
     if (!token) throw new Error("トークンを入れてください");
+    // 形式が不正だと、通信の前にブラウザが弾いて「通信できません」と区別がつかなくなる
+    if (!/^[!-~]+$/.test(token)) throw new Error("トークンに空白や全角などの余計な文字が入っています。コピーし直してください");
+    if (token.length > 120) throw new Error(`トークンが長すぎます(${token.length} 文字)。通常は 93 文字前後です。複数回貼り付けていないか確認してください`);
+    if (!/^(github_pat_|ghp_)/.test(token)) throw new Error("トークンは github_pat_ で始まります。作成したときに表示された値を貼ってください");
     // 端末名は端末ごとに決める(ファイルに入っていても引き継がない)
     const device = cfg?.device || `${opts.kind}-${Math.random().toString(36).slice(2, 7)}`;
     cfg = { repo, token, device };
