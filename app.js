@@ -103,9 +103,9 @@ const settings = () => {
   return held > DATA.settings.lectures_done ? { ...DATA.settings, lectures_done: held } : DATA.settings;
 };
 // 講義計画にあるカードは受講済みの講義回まで、計画にない章は設定で手動で選んだものだけを出題する
-// 注記カードで講義回が未定(計画表がまだない範囲)のものは出さない
-const unlocked = (c) => (c.lecture != null ? c.lecture <= settings().lectures_done
-  : c.type !== "chuki" && settings().unlocked_chapters.includes(c.chapter));
+// 注記には講義がないので、最初から全部出題する
+const unlocked = (c) => (c.type === "chuki" ? true : c.lecture != null ? c.lecture <= settings().lectures_done
+  : settings().unlocked_chapters.includes(c.chapter));
 const chapterUnlocked = (ch) => DATA.cards.some((c) => c.chapter === ch && unlocked(c));
 const runsText = (runs) => runs.map((r) => r[0]).join("");
 const hasKeywords = (runs) => runs.some((r) => r[1] && r[0].trim());
@@ -516,7 +516,7 @@ function renderStudy(app) {
     h("span", {}, `第${c.chapter}章 ${c.chapter_title}`),
     h("span", { class: "muted" }, c.section || ""),
     h("span", { class: "muted" }, c.source || `p.${c.page ?? "-"}`),
-    c.lecture ? h("span", { class: "chip" }, `第${c.lecture}講`) : c.type === "chuki" ? h("span", { class: "chip" }, "講義未定") : null,
+    c.lecture ? h("span", { class: "chip" }, `第${c.lecture}講`) : null,
     h("span", { class: "spacer" }),
     c.type === "kitei" ? h("span", { class: `stage-badge ${s.status === "review" ? "stage-review" : "stage-0"}` }, s.status === "review" ? "復習: 赤字の穴埋め" : "赤字の穴埋め") :
     S.mock ? h("span", { class: "stage-badge stage-mock" }, "模擬テスト: 白紙から") :
@@ -1675,7 +1675,7 @@ function cardRow(c, expanded) {
       h("div", { class: "answer" }, renderRuns(c.type === "riron" ? c.q : c.a, listSheet ? "redsheet" : "full", { toggle: true }).el),
       s2.status !== "new" ? h("div", { style: "margin-top:8px" }, cardCurve(c)) : null,
       h("div", { class: "row small muted", style: "margin-top:8px" },
-        h("span", {}, `${c.id} ・ ${c.lecture ? `第${c.lecture}講で学習` : c.type === "chuki" ? "講義未定(出題しない)" : "講義計画外"} ・ ${c.source ? `${c.source} ・ ` : ""}${MASTERY_LABEL[s2.mastery]}`),
+        h("span", {}, `${c.id} ・ ${c.lecture ? `第${c.lecture}講で学習` : c.type === "chuki" ? "講義なし" : "講義計画外"} ・ ${c.source ? `${c.source} ・ ` : ""}${MASTERY_LABEL[s2.mastery]}`),
         s2.status !== "new" ? h("span", {}, `回答 ${s2.reps} 回 ・ 忘却 ${s2.lapses} 回 ・ 次回 ${s2.due ? fmtDay(dayKey(s2.due)) : "-"}`) : null,
         h("span", { class: "spacer" }),
         h("button", { class: "btn", onclick: () => startSession([c.id], c.id) }, "練習する"),
