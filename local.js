@@ -115,7 +115,7 @@ const Local = (() => {
       states,
       settings: settings(),
       schedule: schedule && {
-        lectures: schedule.lectures.map((l) => ({ no: l.no, label: l.label })),
+        lectures: schedule.lectures.map((l) => ({ no: l.no, label: l.label, date: l.date })),
         tests: schedule.tests || [],
       },
       log: mem.log.map(logRow),

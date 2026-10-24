@@ -250,6 +250,12 @@ h2 { border-left: 4px solid var(--c-blue); padding-left: 8px; }
 .chip.type-kitei { background: var(--c-red); border-color: var(--c-red); color: #fff; }
 .chip.type-riron { background: var(--c-violet); border-color: var(--c-violet); color: #fff; }
 .chip.type-maru { background: var(--c-aqua); border-color: var(--c-aqua); color: #fff; }
+.chip.type-chuki { background: var(--c-orange); border-color: var(--c-orange); color: #fff; }
+
+/* 理論 / 注記 のデッキ切り替え(上部バー) */
+.deck-switch { display: inline-flex; flex-shrink: 0; background: rgba(255, 255, 255, .18); border-radius: 999px; padding: 3px; }
+.deck-btn { white-space: nowrap; border: none; background: transparent; color: rgba(255, 255, 255, .9); padding: 4px 14px; border-radius: 999px; cursor: pointer; font-weight: 600; }
+.deck-btn.on { background: #fff; color: #2a3fa8; }
 .chip.on { background: var(--hero); border-color: transparent; }
 .stars { color: var(--c-yellow); text-shadow: 0 0 6px rgba(237, 161, 0, .45); }
 
@@ -371,6 +377,7 @@ body {
   .brand { display: none; }
   .topbar nav { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; }
   .topbar nav a { padding: 6px 10px; white-space: nowrap; font-size: .9rem; }
+  .deck-btn { padding: 4px 10px; font-size: .9rem; }
   main { padding: 12px 12px 64px; }
   .study-head select { max-width: 52vw; }
   .tiles { grid-template-columns: repeat(2, 1fr); }

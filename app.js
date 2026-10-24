@@ -1,11 +1,14 @@
 "use strict";
 
-const TYPE_LABEL = { yoten: "要点", kitei: "規定", riron: "理論チェック", maru: "〇×" };
+const TYPE_LABEL = { yoten: "要点", kitei: "規定", riron: "理論チェック", maru: "〇×", chuki: "注記" };
 const STAGE_LABEL = ["キーワード穴埋め", "頭文字ヒント", "白紙から再現"];
 const MASTERY_LABEL = ["未学習", "キーワード段階", "頭文字段階", "再現できた", "定着", "完全定着"];
 const GRADE_LABEL = { 1: "もう一度", 2: "あやふや", 3: "OK", 4: "完璧" };
-const STAGED = new Set(["yoten"]); // 規定は赤字の穴埋めだけで覚える
-const MEMORIZE = new Set(["yoten", "kitei"]); // 暗記の中心(定着率などの集計対象)
+const STAGED = new Set(["yoten", "chuki"]); // 規定は赤字の穴埋めだけで覚える
+const MEMORIZE = new Set(["yoten", "kitei", "chuki"]); // 暗記の中心(定着率などの集計対象)
+// 理論のカードと計算の注記カードは別のデッキとして切り替えて使う(どちらを開いているかは端末ごとに覚える)
+const DECKS = { riron: { name: "理論", title: "財表 理論暗記", memo: "要点・規定" }, chuki: { name: "注記", title: "財表 注記暗記", memo: "注記" } };
+const deckOf = (c) => (c.type === "chuki" ? "chuki" : "riron");
 const DAY_MS = 86400e3;
 const LADDER = Srs.REVIEW_LADDER; // 忘却曲線に沿った卒業後の復習間隔(srs.py・srs.js と同じ)
 const TARGET_RECALL = Srs.TARGET_RECALL;
@@ -15,6 +18,8 @@ let DATA = null;
 let BY_ID = {};
 let ORDER = {};
 let S = null; // 学習セッション
+let DECK = "riron";
+try { if (localStorage.getItem("deck") in DECKS) DECK = localStorage.getItem("deck"); } catch { /* 無視 */ }
 
 // ---------- 共通 ----------
 // PC のサーバーに話しかけるか、この端末の中(local.js)だけで動くか。
@@ -49,9 +54,21 @@ async function api(path, body) {
 
 async function load() {
   DATA = await api("/api/data");
+  // 開いているデッキのカードだけを扱う。状態とログは全デッキ分のまま(ログを数えるときは BY_ID で絞る)
+  DATA.cards = DATA.cards.filter((c) => deckOf(c) === DECK);
   BY_ID = {};
   ORDER = {};
   DATA.cards.forEach((c, i) => { BY_ID[c.id] = c; ORDER[c.id] = i; });
+}
+
+async function switchDeck(deck) {
+  if (deck === DECK) return;
+  DECK = deck;
+  try { localStorage.setItem("deck", deck); } catch { /* 無視 */ }
+  S = null;
+  await load();
+  if (currentRoute().name === "test" || currentRoute().params.get("card")) location.hash = "#/";
+  render();
 }
 
 function h(tag, attrs = {}, ...kids) {
@@ -75,9 +92,20 @@ function h(tag, attrs = {}, ...kids) {
 // replaceChildren は null を "null" という文字にしてしまうので取り除いてから渡す
 const fill = (el, ...kids) => el.replaceChildren(...kids.flat().filter((k) => k != null && k !== false));
 const st = (id) => DATA.states[id];
-const settings = () => DATA.settings;
+// 講義計画に日付がある講義は、その日の講義開始(14:00)を過ぎたら受講済みとみなす
+const LECTURE_START = "14:00:00";
+const heldLectures = () => {
+  const now = Srs.iso(new Date());
+  return Math.max(0, ...(DATA.schedule?.lectures || []).filter((l) => l.date && `${l.date}T${LECTURE_START}` <= now).map((l) => l.no));
+};
+const settings = () => {
+  const held = heldLectures();
+  return held > DATA.settings.lectures_done ? { ...DATA.settings, lectures_done: held } : DATA.settings;
+};
 // 講義計画にあるカードは受講済みの講義回まで、計画にない章は設定で手動で選んだものだけを出題する
-const unlocked = (c) => (c.lecture != null ? c.lecture <= settings().lectures_done : settings().unlocked_chapters.includes(c.chapter));
+// 注記カードで講義回が未定(計画表がまだない範囲)のものは出さない
+const unlocked = (c) => (c.lecture != null ? c.lecture <= settings().lectures_done
+  : c.type !== "chuki" && settings().unlocked_chapters.includes(c.chapter));
 const chapterUnlocked = (ch) => DATA.cards.some((c) => c.chapter === ch && unlocked(c));
 const runsText = (runs) => runs.map((r) => r[0]).join("");
 const hasKeywords = (runs) => runs.some((r) => r[1] && r[0].trim());
@@ -112,14 +140,14 @@ function isDue(c, now = new Date()) {
 function newIntroducedToday() {
   const today = dayKey(new Date());
   // ミニテスト対策で初めて解いたカードは、毎日の新規枠に数えない
-  return DATA.log.filter((e) => e[4] === "new" && e[8] !== "test" && dayKey(e[0]) === today).length;
+  return DATA.log.filter((e) => e[4] === "new" && e[8] !== "test" && BY_ID[e[1]] && dayKey(e[0]) === today).length;
 }
 
 function newCandidates(filter) {
   const s = settings();
   const list = DATA.cards.filter((c) =>
     st(c.id).status === "new" && !st(c.id).suspended && unlocked(c) &&
-    s.new_types.includes(c.type) && (!filter || filter(c)));
+    (DECK === "chuki" || s.new_types.includes(c.type)) && (!filter || filter(c)));
   const key = s.new_order === "chapter"
     ? (c) => [c.chapter, ORDER[c.id]]
     : (c) => [-c.stars, c.chapter, ORDER[c.id]];
@@ -487,8 +515,8 @@ function renderStudy(app) {
     c.stars ? h("span", { class: "stars" }, starsText(c.stars)) : null,
     h("span", {}, `第${c.chapter}章 ${c.chapter_title}`),
     h("span", { class: "muted" }, c.section || ""),
-    h("span", { class: "muted" }, `p.${c.page ?? "-"}`),
-    c.lecture ? h("span", { class: "chip" }, `第${c.lecture}講`) : null,
+    h("span", { class: "muted" }, c.source || `p.${c.page ?? "-"}`),
+    c.lecture ? h("span", { class: "chip" }, `第${c.lecture}講`) : c.type === "chuki" ? h("span", { class: "chip" }, "講義未定") : null,
     h("span", { class: "spacer" }),
     c.type === "kitei" ? h("span", { class: `stage-badge ${s.status === "review" ? "stage-review" : "stage-0"}` }, s.status === "review" ? "復習: 赤字の穴埋め" : "赤字の穴埋め") :
     S.mock ? h("span", { class: "stage-badge stage-mock" }, "模擬テスト: 白紙から") :
@@ -680,6 +708,7 @@ function renderStudyStart(app) {
     h("option", { value: "riron" }, "理論チェック"),
     h("option", { value: "maru" }, "〇×チェック"),
     h("option", { value: "all" }, "すべて"));
+  if (DECK !== "riron") typeSel.value = "all";
   const typeFilter = (v) => (c) => v === "all" || (v === "memorize" ? MEMORIZE.has(c.type) : c.type === v);
 
   app.append(
@@ -693,7 +722,7 @@ function renderStudyStart(app) {
     h("div", { class: "panel" },
       h("h2", {}, "範囲を指定して練習"),
       h("p", { class: "small muted" }, "予定に関係なく、習熟度の低い順に出題します(評価は記録されます)。"),
-      h("div", { class: "row" }, chapterSel, typeSel,
+      h("div", { class: "row" }, chapterSel, DECK === "riron" ? typeSel : null,
         h("button", { class: "btn", onclick: () => {
           const ch = Number(chapterSel.value), f = typeFilter(typeSel.value);
           startSession(practiceQueue((c) => c.chapter === ch && f(c)), `第${ch}章 ${typeSel.selectedOptions[0].text}`);
@@ -767,8 +796,9 @@ const owlLevel = (pct = fixedRate().pct) => Math.min(OWL_FORMS.length - 1, Math.
 function owlEvolved() {
   const level = owlLevel();
   let seen = null;
-  try { seen = localStorage.getItem("owlLevel"); } catch { /* 無視 */ }
-  try { localStorage.setItem("owlLevel", String(level)); } catch { /* 無視 */ }
+  const key = DECK === "riron" ? "owlLevel" : `owlLevel:${DECK}`;
+  try { seen = localStorage.getItem(key); } catch { /* 無視 */ }
+  try { localStorage.setItem(key, String(level)); } catch { /* 無視 */ }
   return seen !== null && level > Number(seen) ? level : null;
 }
 
@@ -1057,7 +1087,8 @@ function renderHome(app) {
   const examDays = daysBetween(today, settings().exam_date);
   const twoStar = mem.filter((c) => c.stars === 2);
   const twoStarFixed = twoStar.filter((c) => st(c.id).mastery >= 4).length;
-  const doneToday = DATA.log.filter((e) => dayKey(e[0]) === today).length;
+  const doneToday = DATA.log.filter((e) => BY_ID[e[1]] && dayKey(e[0]) === today).length;
+  const memo = DECKS[DECK].memo;
 
   const remaining = due.length + newN;
   const streak = streakDays();
@@ -1076,13 +1107,13 @@ function renderHome(app) {
       h("div", { class: "hero-side" },
         h("button", { class: "btn primary big", onclick: () => startSession(todayQueue(), "今日の学習") },
           `今日の学習を始める(${remaining} 枚)`),
-        testShortcut())),
+        DECK === "riron" ? testShortcut() : null)),
     h("div", { class: "tiles" },
       tile("今日の残り", `${due.length + newN}`, `復習 ${due.length} / 新規 ${newN} ・ 今日 ${doneToday} 回答済み`, "blue"),
       tile("試験まで", `${examDays} 日`, `${settings().exam_date}(設定で変更)`, "red"),
       tile("連続学習", `${streakDays()} 日`, null, "orange"),
-      tile("定着(要点・規定)", `${mem.length ? Math.round((fixed / mem.length) * 100) : 0}%`, `${fixed}/${mem.length} 枚 ・ ★★ ${twoStarFixed}/${twoStar.length}`, "green"),
-      tile("今テストしたら(推定)", `${Math.round(recallAvg * 100)}%`, "解放済みの要点・規定を思い出せる確率の平均", "violet")),
+      tile(`定着(${memo})`, `${mem.length ? Math.round((fixed / mem.length) * 100) : 0}%`, `${fixed}/${mem.length} 枚` + (twoStar.length ? ` ・ ★★ ${twoStarFixed}/${twoStar.length}` : ""), "green"),
+      tile("今テストしたら(推定)", `${Math.round(recallAvg * 100)}%`, `解放済みの${memo}を思い出せる確率の平均`, "violet")),
     growthPanel(),
     heatmapPanel(),
     h("div", { class: "grid grid-2" }, starPanel(mem), forecastPanel()),
@@ -1587,8 +1618,8 @@ function renderList(app, params) {
   const draw = () => {
     body.replaceChildren();
     for (const ch of chapters()) {
-      const cards = DATA.cards.filter((c) => c.chapter === ch && F.types.includes(c.type) &&
-        (c.type === "riron" || c.type === "maru" || F.stars.includes(c.stars)) &&
+      const cards = DATA.cards.filter((c) => c.chapter === ch && (DECK !== "riron" || F.types.includes(c.type)) &&
+        (DECK !== "riron" || c.type === "riron" || c.type === "maru" || F.stars.includes(c.stars)) &&
         (!F.q || (runsText(c.q) + runsText(c.a || [])).includes(F.q)));
       if (!cards.length) continue;
       const open = target ? cards.some((c) => c.id === target) : false;
@@ -1606,7 +1637,7 @@ function renderList(app, params) {
     if (target) setTimeout(() => document.getElementById(`row-${target}`)?.scrollIntoView({ block: "center" }), 0);
   };
 
-  const typeChips = Object.entries(TYPE_LABEL).map(([t, label]) =>
+  const typeChips = Object.entries(TYPE_LABEL).filter(([t]) => t !== "chuki").map(([t, label]) =>
     h("button", { class: "chip" + (F.types.includes(t) ? " on" : ""), onclick: (e) => {
       F.types = F.types.includes(t) ? F.types.filter((x) => x !== t) : [...F.types, t];
       e.currentTarget.classList.toggle("on"); save(); draw();
@@ -1626,7 +1657,7 @@ function renderList(app, params) {
 
   app.append(h("h1", {}, "一覧"),
     h("p", { class: "small muted" }, "問題をクリックすると解答を表示します(熟読用)。赤シートをオンにすると、キーワードを隠した状態で表示します。"),
-    h("div", { class: "filters" }, typeChips, h("span", { class: "muted" }, "|"), starChips, search, h("span", { class: "muted" }, "|"), sheetChip),
+    h("div", { class: "filters" }, DECK === "riron" ? [typeChips, h("span", { class: "muted" }, "|"), starChips] : null, search, h("span", { class: "muted" }, "|"), sheetChip),
     body);
   draw();
 }
@@ -1644,7 +1675,7 @@ function cardRow(c, expanded) {
       h("div", { class: "answer" }, renderRuns(c.type === "riron" ? c.q : c.a, listSheet ? "redsheet" : "full", { toggle: true }).el),
       s2.status !== "new" ? h("div", { style: "margin-top:8px" }, cardCurve(c)) : null,
       h("div", { class: "row small muted", style: "margin-top:8px" },
-        h("span", {}, `${c.id} ・ ${c.lecture ? `第${c.lecture}講で学習` : "講義計画外"} ・ ${MASTERY_LABEL[s2.mastery]}`),
+        h("span", {}, `${c.id} ・ ${c.lecture ? `第${c.lecture}講で学習` : c.type === "chuki" ? "講義未定(出題しない)" : "講義計画外"} ・ ${c.source ? `${c.source} ・ ` : ""}${MASTERY_LABEL[s2.mastery]}`),
         s2.status !== "new" ? h("span", {}, `回答 ${s2.reps} 回 ・ 忘却 ${s2.lapses} 回 ・ 次回 ${s2.due ? fmtDay(dayKey(s2.due)) : "-"}`) : null,
         h("span", { class: "spacer" }),
         h("button", { class: "btn", onclick: () => startSession([c.id], c.id) }, "練習する"),
@@ -1673,14 +1704,14 @@ function renderSettings(app) {
   const exam = h("input", { type: "date", value: s.exam_date });
   const daily = h("input", { type: "number", min: 0, max: 100, value: s.daily_new, style: "width:6em" });
   const maxI = h("input", { type: "number", min: 7, max: 365, value: s.max_interval, style: "width:6em" });
-  const typeBoxes = Object.entries(TYPE_LABEL).map(([t, label]) =>
+  const typeBoxes = Object.entries(TYPE_LABEL).filter(([t]) => t !== "chuki").map(([t, label]) =>
     h("label", {}, h("input", { type: "checkbox", value: t, checked: s.new_types.includes(t) }), ` ${label} `));
   const order = h("select", {}, h("option", { value: "stars" }, "重要度順(★★→★→無印、同じ★なら章順)"), h("option", { value: "chapter" }, "章順"));
   order.value = s.new_order;
   const lecturesDone = h("input", { type: "number", min: 0, max: 60, value: s.lectures_done, style: "width:5em" });
   const lectures = DATA.schedule?.lectures || [];
   // 講義計画に載っていないカードがある章だけ、手動で出題対象にできる
-  const offPlan = chapters().filter((ch) => DATA.cards.some((c) => c.chapter === ch && c.lecture == null));
+  const offPlan = chapters().filter((ch) => DATA.cards.some((c) => c.chapter === ch && c.lecture == null && c.type !== "chuki"));
   const chapBoxes = offPlan.map((ch) =>
     h("label", {}, h("input", { type: "checkbox", value: ch, checked: s.unlocked_chapters.includes(ch) }), ` 第${ch}章 ${chapterTitle(ch)}`));
   const msg = h("span", { class: "muted small" });
@@ -1990,6 +2021,17 @@ function renderGuide(app) {
 ` }));
 }
 
+// ---------- デッキの切り替え ----------
+function renderDeckSwitch() {
+  const box = document.getElementById("deck-switch");
+  if (!box) return;
+  fill(box, Object.entries(DECKS).map(([key, d]) =>
+    h("button", { class: "deck-btn" + (key === DECK ? " on" : ""), "aria-pressed": String(key === DECK), onclick: () => switchDeck(key) }, d.name)));
+  document.getElementById("brand-title").textContent = DECKS[DECK].title;
+  document.title = DECKS[DECK].title;
+  document.querySelector('.topbar nav a[data-route="test"]').hidden = DECK !== "riron";
+}
+
 // ---------- ルーティング ----------
 function currentRoute() {
   const [path, query] = (location.hash.replace(/^#/, "") || "/").split("?");
@@ -1999,10 +2041,12 @@ function currentRoute() {
 
 async function render() {
   hideTip();
-  const { name, params } = currentRoute();
+  let { name, params } = currentRoute();
+  if (name === "test" && DECK !== "riron") name = "home";  // ミニテストは理論だけ
   document.querySelectorAll(".topbar nav a").forEach((a) => a.classList.toggle("active", a.dataset.route === name));
   const app = document.getElementById("app");
   app.replaceChildren();
+  renderDeckSwitch();
   ({ home: renderHome, study: renderStudy, test: renderTest, list: renderList, guide: renderGuide, settings: renderSettings })[name](app, params);
   if (LOCAL && name === "home") { const n = backupNotice(); if (n) app.prepend(n); }
 }

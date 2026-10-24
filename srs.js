@@ -5,7 +5,7 @@
 const Srs = (() => {
   const AGAIN = 1, HARD = 2, GOOD = 3, EASY = 4;
   const FINAL_STAGE = 2;
-  const STAGED_TYPES = ["yoten"];
+  const STAGED_TYPES = ["yoten", "chuki"];
   const DAY_START_HOUR = 4;
   const REVIEW_LADDER = [1, 2, 6, 14, 31];
   const TARGET_RECALL = 0.9;
