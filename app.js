@@ -33,7 +33,20 @@ async function detectBackend() {
   } catch {
     LOCAL = true;
   }
-  if (LOCAL && "serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(() => {});
+  if (LOCAL && "serviceWorker" in navigator) {
+    // sw.js はしまってある古い版を先に返すので、新しい版が有効になったら読み直してすぐ使う(学習中は次に開いたとき)
+    const updating = !!navigator.serviceWorker.controller;
+    navigator.serviceWorker.addEventListener("controllerchange", () => {
+      if (updating && currentRoute().name !== "study") location.reload();
+    });
+    navigator.serviceWorker.register("sw.js").catch(() => {});
+  }
+}
+
+// 端末内モードで今動いているアプリの版(sw.js のキャッシュ名。build-pwa が内容のハッシュを入れる)
+async function appVersion() {
+  try { return (await caches.keys()).find((k) => k.startsWith("riron-app-"))?.slice("riron-app-".length) || "不明"; }
+  catch { return "不明"; }
 }
 
 async function api(path, body) {
@@ -1850,7 +1863,9 @@ function manualSyncPanel() {
   let note = null;
   if (LOCAL) {
     const { at, logNow } = Local.lastExport();
-    note = h("p", { class: "small muted" }, at ? `最後に書き出した日時: ${at.replace("T", " ")}` : "まだ書き出していません。", logNow ? ` (この端末の評価 ${logNow} 件)` : "");
+    const ver = h("span", {});
+    appVersion().then((v) => { ver.textContent = ` アプリの版: ${v}`; });
+    note = h("p", { class: "small muted" }, at ? `最後に書き出した日時: ${at.replace("T", " ")}` : "まだ書き出していません。", logNow ? ` (この端末の評価 ${logNow} 件)` : "", ver);
   }
   return h("div", { style: "margin-top:8px" },
     h("p", { class: "small" },
