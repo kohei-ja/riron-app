@@ -1825,9 +1825,11 @@ function manualSyncPanel() {
     if (navigator.canShare?.({ files: [new File(["{}"], "x.json", { type: "application/json" })] })) shareBtn.hidden = false;
   } catch { /* 共有に未対応 */ }
 
-  const file = h("input", { type: "file", accept: ".json,application/json", onchange: async () => {
+  // accept は付けない(Android のファイル選択は MIME で絞り込むので、USB でコピーした .json が選べないことがある。中身で検査する)
+  const file = h("input", { type: "file", onchange: async () => {
     const f = file.files[0];
     if (!f) return;
+    say(`「${f.name}」を読み込んでいます…`);
     try {
       let json;
       try { json = JSON.parse(await f.text()); } catch { throw new Error("JSON として読めませんでした"); }
@@ -1835,9 +1837,12 @@ function manualSyncPanel() {
       const connected = applySyncFromFile(json);
       await load();
       if (connected) { say("取り込みました。自動同期の設定も入りました。"); return; }
-      say(r.added || r.flags || r.loaded
+      // PC につないだ画面ではカードと講義計画は入れ替わらない(PC 側の cards.json と lectures.json を使う)
+      const misplaced = !LOCAL && Array.isArray(json.cards)
+        ? " これは「スマホ用データ」です。カードと講義計画は、スマホ単体のアプリ(ホーム画面のアイコン)の「PC のデータを取り込む」で取り込んでください。" : "";
+      say((r.added || r.flags || r.loaded
         ? `取り込みました: 評価 ${r.added} 件(${r.cards} 枚のカード)${r.loaded ? `、カード ${r.loaded} 枚` : ""}${r.flags ? `、フラグ ${r.flags} 件` : ""}。`
-        : "新しい記録はありませんでした。");
+        : "新しい記録はありませんでした。") + misplaced);
     } catch (e) { say(`取り込めませんでした: ${e.message}`, true); }
     file.value = "";
   } });
@@ -1932,9 +1937,10 @@ function backupNotice() {
 // 初回: カードが入っていない端末に、PC で書き出したデータを入れる
 function renderImportScreen() {
   const msg = h("div", { class: "small", style: "margin-top:8px" });
-  const file = h("input", { type: "file", accept: ".json,application/json", onchange: async () => {
+  const file = h("input", { type: "file", onchange: async () => {
     const f = file.files[0];
     if (!f) return;
+    msg.textContent = `「${f.name}」を読み込んでいます…`;
     try {
       let json;
       try { json = JSON.parse(await f.text()); } catch { throw new Error("JSON として読めませんでした"); }
@@ -2075,10 +2081,11 @@ function showSyncBadge(s) {
   el.classList.toggle("bad", s.state === "error");
 }
 
-// 他の端末の記録を取り込んだら、学習中でなければ画面を読み直す
+// 他の端末の記録を取り込んだら、学習中でなければ画面を読み直す。
+// 設定画面は描き直さない(ファイル選択から戻った直後に同期が走ると、選んだファイルと結果の表示が消えてしまう)
 async function afterSync(result) {
   if (!result || !result.merged || currentRoute().name === "study") return;
-  try { await load(); render(); } catch { /* 次の操作で読み直す */ }
+  try { await load(); if (currentRoute().name !== "settings") render(); } catch { /* 次の操作で読み直す */ }
 }
 
 function startSync() {
